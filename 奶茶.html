@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>¡Hagamos Té de Burbujas! - 做奶茶</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        @keyframes fade-in-up {
+            0% { opacity: 0; transform: translateY(40px) scale(0.95); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .animate-fade-in-up {
+            animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        @keyframes bounce-slow {
+            0%, 100% { transform: translateY(-3%); }
+            50% { transform: translateY(2%); }
+        }
+        .animate-bounce-slow {
+            animation: bounce-slow 3s infinite ease-in-out;
+        }
+        .liquid-fill {
+            transition: height 1.2s ease-in-out, background-color 0.5s ease;
+        }
+        /* 拼音与汉字一一对应对齐 */
+        .pinyin-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0 0.15rem;
+        }
+        .pinyin-text {
+            font-size: 0.32em;
+            line-height: 1.2;
+            margin-bottom: 0.3rem;
+            font-weight: 600;
+            color: #64748b;
+            text-transform: lowercase;
+            letter-spacing: -0.02em;
+        }
+        .character-text {
+            font-size: 1em;
+            line-height: 1;
+        }
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #fffaf0; }
+        .no-select { user-select: none; -webkit-user-select: none; }
+        
+        /* 加载等待的小动画，提示玩家正在处理 */
+        .waiting-dots::after {
+            content: '...';
+            display: inline-block;
+            width: 1em;
+            text-align: left;
+            animation: dots 1.5s infinite;
+        }
+        @keyframes dots {
+            0% { content: '.'; }
+            33% { content: '..'; }
+            66% { content: '...'; }
+        }
+    </style>
+</head>
+<body class="no-select">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState } = React;
+
+        // 核心组件：拼音与汉字垂直对齐
+        const PinyinUnit = ({ text, pinyin, color }) => {
+            const chars = text.split('');
+            const pys = pinyin.split(' ');
+            return (
+                <div className="flex items-end">
+                    {chars.map((char, i) => (
+                        <div key={i} className="pinyin-box">
+                            <span className="pinyin-text">{pys[i]}</span>
+                            <span className={`character-text font-black ${color}`}>{char}</span>
+                        </div>
+                    ))}
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [step, setStep] = useState(0);
+            const [selectedItem, setSelectedItem] = useState(null);
+            const [showResult, setShowResult] = useState(false);
+            const [visualStep, setVisualStep] = useState(0); 
+            const [isFinished, setIsFinished] = useState(false);
+            const [isWaiting, setIsWaiting] = useState(false); // 新增：等待状态
+
+            const stepsData = [
+                {
+                    id: 0,
+                    draggableId: 'boba',
+                    targetId: 'pot',
+                    instruction: 'Paso 1: Cocina las perlas (煮珍珠).',
+                    zhParts: [
+                        { text: '我', py: 'wǒ', color: 'text-slate-700' },
+                        { text: '把', py: 'bǎ', color: 'text-red-500' },
+                        { text: '珍珠', py: 'zhēn zhū', color: 'text-amber-800' },
+                        { text: '煮好了。', py: 'zhǔ hǎo le', color: 'text-emerald-600' }
+                    ],
+                    es: 'He cocinado las perlas.'
+                },
+                {
+                    id: 1,
+                    draggableId: 'boba',
+                    targetId: 'cup',
+                    instruction: 'Paso 2: Pon las perlas en el vaso.',
+                    zhParts: [
+                        { text: '我', py: 'wǒ', color: 'text-slate-700' },
+                        { text: '把', py: 'bǎ', color: 'text-red-500' },
+                        { text: '珍珠', py: 'zhēn zhū', color: 'text-amber-800' },
+                        { text: '放在杯子里。', py: 'fàng zài bēi zi lǐ', color: 'text-emerald-600' }
+                    ],
+                    es: 'Pongo las perlas en el vaso.'
+                },
+                {
+                    id: 2,
+                    draggableId: 'tea',
+                    targetId: 'cup',
+                    instruction: 'Paso 3: Vierte el té.',
+                    zhParts: [
+                        { text: '我', py: 'wǒ', color: 'text-slate-700' },
+                        { text: '把', py: 'bǎ', color: 'text-red-500' },
+                        { text: '茶', py: 'chá', color: 'text-amber-600' },
+                        { text: '倒在杯子里。', py: 'dào zài bēi zi lǐ', color: 'text-emerald-600' }
+                    ],
+                    es: 'Vierto el té en el vaso.'
+                },
+                {
+                    id: 3,
+                    draggableId: 'milk',
+                    targetId: 'cup',
+                    instruction: 'Paso 4: Vierte la leche.',
+                    zhParts: [
+                        { text: '我', py: 'wǒ', color: 'text-slate-700' },
+                        { text: '把', py: 'bǎ', color: 'text-red-500' },
+                        { text: '牛奶', py: 'niú nǎi', color: 'text-blue-500' },
+                        { text: '倒在杯子里。', py: 'dào zài bēi zi lǐ', color: 'text-emerald-600' }
+                    ],
+                    es: 'Vierto la leche en el vaso.'
+                }
+            ];
+
+            const finalData = {
+                zhParts: [
+                    { text: '我', py: 'wǒ', color: 'text-slate-700' },
+                    { text: '把', py: 'bǎ', color: 'text-red-500' },
+                    { text: '奶茶', py: 'nǎi chá', color: 'text-amber-900' },
+                    { text: '做好了。', py: 'zuò hǎo le', color: 'text-emerald-600' }
+                ],
+                es: '¡El té de burbujas está listo!'
+            };
+
+            const launchFireworks = () => {
+                const duration = 4 * 1000;
+                const animationEnd = Date.now() + duration;
+                const defaults = { startVelocity: 35, spread: 360, ticks: 60, zIndex: 100 };
+                const randomInRange = (min, max) => Math.random() * (max - min) + min;
+
+                const interval = setInterval(function() {
+                    const timeLeft = animationEnd - Date.now();
+                    if (timeLeft <= 0) return clearInterval(interval);
+                    const particleCount = 60 * (timeLeft / duration);
+                    confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } });
+                    confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } });
+                }, 300);
+            };
+
+            const processAction = (draggedId, targetId) => {
+                const current = stepsData[step];
+                if (draggedId === current.draggableId && targetId === current.targetId) {
+                    setSelectedItem(null);
+                    setVisualStep(step + 1); // 立即显示视觉变化（倒水、放珍珠等）
+                    setIsWaiting(true); // 进入等待状态
+                    
+                    // 修改：等待 3 秒后弹出句子
+                    setTimeout(() => {
+                        setIsWaiting(false);
+                        setShowResult(true);
+                    }, 3000);
+                }
+            };
+
+            const nextStep = () => {
+                setShowResult(false);
+                if (step < stepsData.length - 1) {
+                    setStep(prev => prev + 1);
+                } else {
+                    setIsFinished(true);
+                    launchFireworks();
+                }
+            };
+
+            const DraggableItem = ({ id, label, icon }) => {
+                // 如果正在等待或显示结果，则不能拖拽
+                const isActive = !isFinished && !isWaiting && step < stepsData.length && stepsData[step].draggableId === id && !showResult;
+                let isVisible = (id === 'boba' && step <= 1) || (id === 'tea' && step === 2) || (id === 'milk' && step === 3);
+                if (!isVisible) return <div className="w-32 h-40 m-4 hidden md:block opacity-0"></div>;
+
+                return (
+                    <div
+                        draggable={isActive}
+                        onDragStart={(e) => { e.dataTransfer.setData('text/plain', id); setSelectedItem(id); }}
+                        onClick={() => isActive && setSelectedItem(id === selectedItem ? null : id)}
+                        className={`flex flex-col items-center justify-center p-4 m-4 w-36 h-48 md:w-44 md:h-56 rounded-[2.5rem] transition-all duration-500 shadow-lg ${
+                            isActive ? 'cursor-grab bg-white border-2 border-orange-100 hover:scale-105' : 'opacity-40 grayscale cursor-not-allowed'
+                        } ${selectedItem === id ? 'ring-4 ring-amber-400 scale-110 z-10' : ''}`}
+                    >
+                        <div className="text-7xl md:text-8xl mb-4 drop-shadow-md select-none">{icon}</div>
+                        <span className="font-bold text-slate-700 text-lg md:text-xl">{label}</span>
+                    </div>
+                );
+            };
+
+            return (
+                <div className="min-h-screen bg-orange-50 p-4 font-sans flex flex-col items-center justify-center">
+                    {!isFinished ? (
+                        <div className="w-full max-w-6xl flex flex-col items-center">
+                            <div className="bg-slate-800 text-white px-8 py-4 rounded-full text-xl md:text-2xl font-medium shadow-xl mb-12 flex items-center gap-4 min-h-[4rem]">
+                                {isWaiting ? (
+                                    <span className="waiting-dots">Muy bien! Espera un momento</span>
+                                ) : (
+                                    <React.Fragment>
+                                        <span className="animate-pulse">🧋</span> {stepsData[step].instruction}
+                                    </React.Fragment>
+                                )}
+                            </div>
+
+                            <div className="flex flex-col md:flex-row w-full justify-around items-center gap-12">
+                                <div className="flex flex-row md:flex-col justify-center items-center">
+                                    <DraggableItem id="boba" label="珍珠" icon="🧆" />
+                                    <DraggableItem id="tea" label="茶" icon="🫖" />
+                                    <DraggableItem id="milk" label="牛奶" icon="🥛" />
+                                </div>
+
+                                <div className="flex justify-center items-center h-[400px] md:h-[550px] w-full md:w-1/2 relative">
+                                    {step === 0 ? (
+                                        <div 
+                                            className="flex flex-col items-center justify-end absolute"
+                                            onDragOver={e => !isWaiting && e.preventDefault()}
+                                            onDrop={e => !isWaiting && processAction(e.dataTransfer.getData('text/plain'), 'pot')}
+                                            onClick={() => !isWaiting && selectedItem && processAction(selectedItem, 'pot')}
+                                        >
+                                            <div className="relative w-64 h-48 bg-slate-800 rounded-b-[3.5rem] shadow-2xl border-t-[14px] border-slate-900 cursor-pointer overflow-hidden">
+                                                <div className="absolute top-6 -left-8 w-12 h-8 border-[10px] border-slate-800 rounded-l-full"></div>
+                                                <div className="absolute top-6 -right-8 w-12 h-8 border-[10px] border-slate-800 rounded-r-full"></div>
+                                                <div className="w-full h-full flex justify-center items-end pb-6">
+                                                    {visualStep > 0 && (
+                                                        <div className="flex flex-wrap justify-center w-48 gap-2 animate-bounce-slow">
+                                                            {[...Array(12)].map((_, i) => <div key={i} className="w-7 h-7 bg-black rounded-full"></div>)}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div 
+                                            className="flex flex-col items-center justify-end absolute"
+                                            onDragOver={e => !isWaiting && e.preventDefault()}
+                                            onDrop={e => !isWaiting && processAction(e.dataTransfer.getData('text/plain'), 'cup')}
+                                            onClick={() => !isWaiting && selectedItem && processAction(selectedItem, 'cup')}
+                                        >
+                                            <div className="relative w-60 h-80 md:w-72 md:h-[450px] border-x-[14px] border-b-[14px] border-white bg-white/40 backdrop-blur-sm rounded-b-[3rem] shadow-xl overflow-hidden flex flex-col justify-end cursor-pointer">
+                                                {visualStep >= 4 && <div className="absolute bottom-0 w-full h-[85%] bg-[#D4A373] liquid-fill"></div>}
+                                                {visualStep === 3 && <div className="absolute bottom-0 w-full h-[65%] bg-[#964B00] liquid-fill"></div>}
+                                                {visualStep >= 2 && (
+                                                    <div className="absolute bottom-0 w-full h-[28%] flex flex-wrap justify-center items-end pb-4 px-4 z-10 transition-all">
+                                                        {[...Array(18)].map((_, i) => <div key={i} className="w-8 h-8 bg-black rounded-full m-[1px] shadow-sm"></div>)}
+                                                    </div>
+                                                )}
+                                                <div className="absolute top-0 left-6 w-4 h-full bg-white/20 blur-sm"></div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        /* 完成页 */
+                        <div className="text-center bg-white p-16 rounded-[4rem] shadow-2xl max-w-4xl w-full animate-fade-in-up border-4 border-orange-100">
+                            <div className="text-[120px] mb-8 animate-bounce-slow">🧋</div>
+                            <div className="text-6xl md:text-8xl font-black mb-12 flex flex-wrap justify-center gap-x-4 gap-y-12">
+                                {finalData.zhParts.map((part, idx) => (
+                                    <PinyinUnit key={idx} text={part.text} pinyin={part.py} color={part.color} />
+                                ))}
+                            </div>
+                            <div className="bg-orange-50 rounded-3xl p-8 mb-12">
+                                <div className="text-3xl text-slate-500 italic">{finalData.es}</div>
+                            </div>
+                            <button 
+                                onClick={() => { setStep(0); setVisualStep(0); setShowResult(false); setIsFinished(false); setIsWaiting(false); }} 
+                                className="bg-slate-800 hover:bg-black text-white font-bold py-6 px-20 rounded-full text-3xl transition-transform active:scale-95 shadow-xl"
+                            >
+                                再玩一次 ↺
+                            </button>
+                        </div>
+                    )}
+
+                    {/* 句子弹出层（等待3秒后出现） */}
+                    {showResult && !isFinished && (
+                        <div className="fixed inset-0 bg-black/50 backdrop-blur-md flex items-center justify-center z-50 p-4">
+                            <div className="bg-white p-12 md:p-20 rounded-[5rem] shadow-2xl max-w-6xl w-full text-center animate-fade-in-up">
+                                <div className="mb-6 text-7xl">✨</div>
+                                <div className="text-6xl md:text-9xl font-black mb-16 flex flex-wrap justify-center gap-x-4 gap-y-16">
+                                    {stepsData[step].zhParts.map((part, idx) => (
+                                        <PinyinUnit key={idx} text={part.text} pinyin={part.py} color={part.color} />
+                                    ))}
+                                </div>
+                                <div className="bg-orange-50 rounded-3xl p-8 mb-12">
+                                    <div className="text-3xl text-slate-600 italic font-medium">{stepsData[step].es}</div>
+                                </div>
+                                <button 
+                                    onClick={nextStep} 
+                                    className="bg-amber-400 hover:bg-amber-500 text-slate-900 font-black py-8 px-20 rounded-full text-4xl shadow-2xl active:scale-95 transition-colors"
+                                >
+                                    Siguiente ➡️
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
